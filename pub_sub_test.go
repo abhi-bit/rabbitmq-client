@@ -4,165 +4,231 @@ import (
 	"fmt"
 	"golang.org/x/net/context"
 	"log"
+	"os/exec"
 	"sync"
 	"testing"
+	"time"
 )
 
 const (
-	expectedCount = int64(10)
+	deadLetterExchange = "dead-letter"
+	deadLetterQueue    = "dead-letter-queue"
+
+	bindingKey = "testing"
+	exchange   = "pub_sub_test"
+	queueName  = "pub_sub_queue_test"
+
+	expectedRunCount = int64(10000)
 )
+
+var (
+	actualRunCount = int64(0)
+)
+
+func cleanup() {
+	deleteQueue(deadLetterQueue)
+	deleteExchange(deadLetterExchange)
+	deleteQueue(queueName)
+	deleteExchange(exchange)
+}
 
 func config() *Config {
 	return &Config{
-		URLs:         []string{"amqp://guest:guest@localhost:5672/"},
-		Exchange:     "pub_sub_test",
-		ExchangeType: "topic",
-
-		QueueName:   "pub_sub_queue_test",
-		BindingKeys: []string{"testing"},
-
-		DeadLetterExchange: "dead-letter",
-		DeadLetterQueue:    "dead-letter-queue",
+		URLs:               []string{"amqp://guest:guest@localhost:5672/"},
+		Exchange:           exchange,
+		ExchangeType:       "topic",
+		QueueName:          queueName,
+		BindingKeys:        []string{bindingKey},
+		DeadLetterExchange: deadLetterExchange,
+		DeadLetterQueue:    deadLetterQueue,
 	}
 }
 
-func process(msg []byte) error {
+func process(_ []byte) error {
+	actualRunCount++
 	return nil
 }
 
-func errorFunc(msg []byte) error {
+func errorFn(_ []byte) error {
+	actualRunCount++
 	return fmt.Errorf("could not process")
 }
 
-func PublisherAndConsumer(t *testing.T) (*Publisher, *Consumer, error) {
+func deleteExchange(exchange string) error {
+	cmd := exec.Command(
+		"rabbitmqadmin",
+		"delete",
+		"exchange",
+		fmt.Sprintf("name=%s", exchange))
+
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
+
+func deleteQueue(queue string) error {
+	cmd := exec.Command(
+		"rabbitmqctl",
+		"delete_queue",
+		queue)
+
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
+
+func PublisherAndConsumer() (*Publisher, *Consumer, error) {
 	conf := config()
 	c, err := NewConsumer(conf)
 	if err != nil {
-		t.Error(err)
+		log.Fatal(err)
 		return nil, nil, err
 	}
 
 	p, err := NewPublisher(conf)
 	if err != nil {
-		t.Error(err)
+		log.Fatal(err)
 		return nil, c, err
 	}
 
 	return p, c, nil
 }
 
+func consume(fn processFn, c *Consumer, wg *sync.WaitGroup, expected int64) {
+	defer wg.Done()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				if actualRunCount == expected {
+					cancel()
+					return
+				} else {
+					log.Println("actual run counter", actualRunCount)
+				}
+			}
+		}
+	}()
+
+	_, err := c.Consume(ctx, fn)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+}
+
 // TODO: test with producer before consumer on exchange
-// TODO: Cleanup all exchanges and queues after test run
 func TestPubSub(t *testing.T) {
-	p, c, err := PublisherAndConsumer(t)
+	p, c, err := PublisherAndConsumer()
 	if err != nil {
 		return
 	}
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	defer c.Close()
-	defer p.Close()
-
-	var actualCount int64
-	log.Println()
+	defer func() {
+		actualRunCount = 0
+		c.Close()
+		p.Close()
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func(wg *sync.WaitGroup) {
-		defer wg.Done()
 
-		ctx, cancel := context.WithCancel(context.Background())
-		actualCount, err = c.Consume(ctx, process)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		log.Println()
+	go consume(process, c, &wg, expectedRunCount)
 
-		if actualCount == expectedCount {
-			cancel()
-		}
-
-	}(&wg)
-
-	for i := int64(0); i < expectedCount; i++ {
-		err = p.Publish([]byte("sample message"), "testing")
-		log.Println()
+	for i := int64(0); i < expectedRunCount; i++ {
+		err = p.Publish([]byte("sample message"), bindingKey)
 		if err != nil {
 			t.Error(err)
 			return
 		}
 	}
-	p.Close()
 	wg.Wait()
 
-	if actualCount != expectedCount {
-		log.Println()
-		t.Errorf("Expected count: %d actual count: %d", expectedCount, actualCount)
+	if actualRunCount != expectedRunCount {
+		t.Errorf("Expected count: %d actual count: %d", expectedRunCount, actualRunCount)
+	}
+}
+
+func TestDeadLetter(t *testing.T) {
+	p, c, err := PublisherAndConsumer()
+	if err != nil {
+		return
+	}
+	defer func() {
+		actualRunCount = 0
+		c.Close()
+		p.Close()
+	}()
+
+	err = DeadLetterExchange(config())
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go consume(errorFn, c, &wg, expectedRunCount)
+
+	for i := int64(0); i < expectedRunCount; i++ {
+		err = p.Publish([]byte("sample message"), bindingKey)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+	}
+
+	wg.Wait()
+	if actualRunCount != expectedRunCount {
+		t.Errorf("Expected count: %d actual count: %d", expectedRunCount, actualRunCount)
+	}
+
+	// config to consume from dead letter queue
+	conf := config()
+	conf.ExchangeType = "fanout"
+	conf.Exchange = deadLetterExchange
+	conf.QueueName = deadLetterQueue
+	conf.DeadLetterExchange = ""
+
+	dc, err := NewConsumer(conf)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	wg.Add(1)
+	go consume(process, dc, &wg, 2*expectedRunCount)
+	wg.Wait()
+
+	if actualRunCount != 2*expectedRunCount {
+		t.Errorf("Expected count: %d actual count: %d", expectedRunCount, actualRunCount)
 	}
 
 }
 
-/*func TestDeadLetter(t *testing.T) {
-	conf := config()
-	err := DeadLetterExchange(conf)
+func BenchmarkPub(b *testing.B) {
+	p, c, err := PublisherAndConsumer()
 	if err != nil {
-		t.Error(err)
+		return
 	}
-
-	c, err := NewConsumer(conf)
-	if err != nil {
-		t.Error(err)
-	}
-	defer c.Close()
-
-	go func() {
-		// _, err = c.Consume(errorFunc)
-		_, err = c.Consume(process)
-		if err != nil {
-			t.Error(err)
-		}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	defer func() {
+		c.Close()
+		p.Close()
 	}()
-
-	p, err := NewPublisher(conf)
-	if err != nil {
-		t.Error(err)
-	}
-	defer p.Close()
-
-	err = p.Publish([]byte("Some message."), "testing")
-	if err != nil {
-		t.Error(err)
-	}
-}*/
-
-/*func BenchmarkPubSub(b *testing.B) {
-	conf := config()
-	c, err := NewConsumer(conf)
-	if err != nil {
-		b.Error(err)
-	}
-	defer c.Close()
-
-	go func() {
-		err = c.Consume(process)
-		if err != nil {
-			b.Error(err)
-		}
-	}()
-
-	p, err := NewPublisher(conf)
-	if err != nil {
-		b.Error(err)
-	}
-
-	defer p.Close()
-
-	msg := []byte("sample message")
 
 	for i := 0; i < b.N; i++ {
-		err = p.Publish(msg, "testing")
+		err = p.Publish([]byte("sample message"), bindingKey)
 		if err != nil {
 			b.Error(err)
 		}
 	}
-}*/
+}

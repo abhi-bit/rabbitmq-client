@@ -32,6 +32,7 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer ch.Close()
 
 	if err := ch.ExchangeDeclare(
 		c.config.Exchange,
@@ -43,7 +44,6 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 		nil); err != nil {
 		return 0, err
 	}
-	log.Println()
 
 	var queue amqp.Queue
 
@@ -51,7 +51,6 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 		args := amqp.Table{
 			"x-dead-letter-exchange": c.config.DeadLetterExchange,
 		}
-		log.Println()
 
 		queue, err = ch.QueueDeclare(
 			c.config.QueueName,
@@ -73,7 +72,6 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	log.Println()
 
 	for _, bindingKey := range c.config.BindingKeys {
 		err = ch.QueueBind(
@@ -85,8 +83,6 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 		if err != nil {
 			return 0, err
 		}
-		log.Println()
-
 	}
 
 	deliveries, err := ch.Consume(
@@ -105,7 +101,10 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 		select {
 		case <-ctx.Done():
 			return msgCount, nil
-		case msg := <-deliveries:
+		case msg, ok := <-deliveries:
+			if !ok {
+				return msgCount, nil
+			}
 			err = fn(msg.Body)
 			if err != nil {
 				rErr := msg.Reject(false)
@@ -121,27 +120,6 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 			msgCount++
 		}
 	}
-
-	/*for msg := range deliveries {
-		err = fn(msg.Body)
-		if err != nil {
-			rErr := msg.Reject(false)
-			if rErr != nil {
-				return msgCount, rErr
-			}
-		} else {
-			aErr := msg.Ack(false)
-			if aErr != nil {
-				return msgCount, aErr
-			}
-		}
-		log.Println()
-
-		msgCount++
-	}*/
-
-	log.Println()
-	return msgCount, nil
 }
 
 func (c *Consumer) Close() error {

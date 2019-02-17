@@ -30,6 +30,7 @@ func (p *Publisher) Publish(msg []byte, routingKey string) error {
 	if err != nil {
 		return err
 	}
+	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
 		p.config.Exchange,
