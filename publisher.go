@@ -7,7 +7,8 @@ import (
 )
 
 var (
-	ErrorFailedPublish = errors.New("failed message delivery")
+	ErrorFailedPublish    = errors.New("failed message delivery")
+	ErrorInconsistentSize = errors.New("inconsistent messages or routing keys count")
 )
 
 type Publisher struct {
@@ -50,30 +51,47 @@ func NewPublisher(conf *Config) (*Publisher, error) {
 	return p, nil
 }
 
-func (p *Publisher) Publish(msg []byte, routingKey string) error {
+func (p *Publisher) Publish(msg []byte, routingKeys []string) error {
 	confirm := make(chan amqp.Confirmation, 1)
 	if p.config.PublisherConfirm {
 		p.channel.NotifyPublish(confirm)
 	}
 
-	if err := p.channel.Publish(
-		p.config.Exchange,
-		routingKey,
-		false, // mandatory
-		false, //immediate
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			Body:         msg,
-		}); err != nil {
-		return err
-	}
+	for _, routingKey := range routingKeys {
+		if err := p.channel.Publish(
+			p.config.Exchange,
+			routingKey,
+			false, // mandatory
+			false, //immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				Body:         msg,
+			}); err != nil {
+			return err
+		}
 
-	if p.config.PublisherConfirm {
-		confirmed := <-confirm
-		if !confirmed.Ack {
-			return ErrorFailedPublish
+		if p.config.PublisherConfirm {
+			confirmed := <-confirm
+			if !confirmed.Ack {
+				return ErrorFailedPublish
+			}
 		}
 	}
+	return nil
+}
+
+func (p *Publisher) MultiPublish(msgs [][]byte, routingKeysList [][]string) error {
+	if len(msgs) != len(routingKeysList) {
+		return ErrorInconsistentSize
+	}
+
+	for index, msg := range msgs {
+		err := p.Publish(msg, routingKeysList[index])
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

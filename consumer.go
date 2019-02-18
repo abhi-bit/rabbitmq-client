@@ -2,8 +2,6 @@ package rabbitmq
 
 import (
 	"context"
-	"log"
-
 	"github.com/streadway/amqp"
 )
 
@@ -87,10 +85,7 @@ func NewConsumer(conf *Config) (*Consumer, error) {
 type processFn func(payload []byte) error
 
 func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
 	var msgCount int64
-
 	deliveries, err := c.channel.Consume(
 		c.queue,
 		"",    // consumer tag

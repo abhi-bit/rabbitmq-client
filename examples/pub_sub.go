@@ -63,7 +63,7 @@ func main() {
 
 			log.Printf("Publisher ID: %d spawned\n", i)
 			for {
-				err := p.Publish([]byte("sample message"), "sample")
+				err := p.Publish([]byte("sample message"), []string{"sample"})
 				if err != nil {
 					log.Println(err)
 				}

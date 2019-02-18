@@ -18,7 +18,7 @@ const (
 	exchange   = "pub_sub_test"
 	queueName  = "pub_sub_queue_test"
 
-	expectedRunCount = int64(10000)
+	expectedRunCount = int64(100000)
 )
 
 var (
@@ -130,7 +130,6 @@ func TestPubSub(t *testing.T) {
 	if err != nil {
 		return
 	}
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	defer func() {
 		actualRunCount = 0
 		c.Close()
@@ -143,7 +142,7 @@ func TestPubSub(t *testing.T) {
 	go consume(process, c, &wg, expectedRunCount)
 
 	for i := int64(0); i < expectedRunCount; i++ {
-		err = p.Publish([]byte("sample message"), bindingKey)
+		err = p.Publish([]byte("sample message"), []string{bindingKey})
 		if err != nil {
 			t.Error(err)
 			return
@@ -178,7 +177,7 @@ func TestDeadLetter(t *testing.T) {
 	go consume(errorFn, c, &wg, expectedRunCount)
 
 	for i := int64(0); i < expectedRunCount; i++ {
-		err = p.Publish([]byte("sample message"), bindingKey)
+		err = p.Publish([]byte("sample message"), []string{bindingKey})
 		if err != nil {
 			t.Error(err)
 			return
@@ -218,14 +217,13 @@ func BenchmarkPub(b *testing.B) {
 	if err != nil {
 		return
 	}
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	defer func() {
 		c.Close()
 		p.Close()
 	}()
 
 	for i := 0; i < b.N; i++ {
-		err = p.Publish([]byte("sample message"), bindingKey)
+		err = p.Publish([]byte("sample message"), []string{bindingKey})
 		if err != nil {
 			b.Error(err)
 		}
