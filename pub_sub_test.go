@@ -1,8 +1,8 @@
 package rabbitmq
 
 import (
+	"context"
 	"fmt"
-	"golang.org/x/net/context"
 	"log"
 	"os/exec"
 	"sync"
@@ -125,7 +125,6 @@ func consume(fn processFn, c *Consumer, wg *sync.WaitGroup, expected int64) {
 	}
 }
 
-// TODO: test with producer before consumer on exchange
 func TestPubSub(t *testing.T) {
 	p, c, err := PublisherAndConsumer()
 	if err != nil {

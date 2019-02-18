@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"errors"
+
 	"github.com/streadway/amqp"
 )
 
@@ -10,8 +11,9 @@ var (
 )
 
 type Publisher struct {
-	conn   *Connection
-	config *Config
+	conn    *amqp.Connection
+	channel *amqp.Channel
+	config  *Config
 }
 
 func NewPublisher(conf *Config) (*Publisher, error) {
@@ -22,17 +24,13 @@ func NewPublisher(conf *Config) (*Publisher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p, nil
-}
 
-func (p *Publisher) Publish(msg []byte, routingKey string) error {
-	ch, err := p.conn.Channel()
+	p.channel, err = p.conn.Channel()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer ch.Close()
 
-	err = ch.ExchangeDeclare(
+	err = p.channel.ExchangeDeclare(
 		p.config.Exchange,
 		p.config.ExchangeType,
 		true,  // durable
@@ -41,20 +39,24 @@ func (p *Publisher) Publish(msg []byte, routingKey string) error {
 		false, // noWait
 		nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	err = ch.Confirm(false)
+	err = p.channel.Confirm(false)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
+	return p, nil
+}
+
+func (p *Publisher) Publish(msg []byte, routingKey string) error {
 	confirm := make(chan amqp.Confirmation, 1)
 	if p.config.PublisherConfirm {
-		ch.NotifyPublish(confirm)
+		p.channel.NotifyPublish(confirm)
 	}
 
-	err = ch.Publish(
+	if err := p.channel.Publish(
 		p.config.Exchange,
 		routingKey,
 		false, // mandatory
@@ -62,8 +64,7 @@ func (p *Publisher) Publish(msg []byte, routingKey string) error {
 		amqp.Publishing{
 			DeliveryMode: amqp.Persistent,
 			Body:         msg,
-		})
-	if err != nil {
+		}); err != nil {
 		return err
 	}
 

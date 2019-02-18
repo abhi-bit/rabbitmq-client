@@ -2,13 +2,16 @@ package rabbitmq
 
 import (
 	"context"
-	"github.com/streadway/amqp"
 	"log"
+
+	"github.com/streadway/amqp"
 )
 
 type Consumer struct {
-	conn   *Connection
-	config *Config
+	conn    *amqp.Connection
+	channel *amqp.Channel
+	config  *Config
+	queue   string
 }
 
 func NewConsumer(conf *Config) (*Consumer, error) {
@@ -19,22 +22,13 @@ func NewConsumer(conf *Config) (*Consumer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c, nil
-}
 
-type processFn func(payload []byte) error
-
-func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	var msgCount int64
-	ch, err := c.conn.Channel()
+	c.channel, err = c.conn.Channel()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	defer ch.Close()
 
-	if err := ch.ExchangeDeclare(
+	if err := c.channel.ExchangeDeclare(
 		c.config.Exchange,
 		c.config.ExchangeType,
 		true,  // durable
@@ -42,7 +36,7 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 		false, // internal
 		false, // no wait
 		nil); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	var queue amqp.Queue
@@ -52,7 +46,7 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 			"x-dead-letter-exchange": c.config.DeadLetterExchange,
 		}
 
-		queue, err = ch.QueueDeclare(
+		queue, err = c.channel.QueueDeclare(
 			c.config.QueueName,
 			true,  // durable
 			false, // auto delete
@@ -60,7 +54,7 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 			false, // no wait
 			args)
 	} else {
-		queue, err = ch.QueueDeclare(
+		queue, err = c.channel.QueueDeclare(
 			c.config.QueueName,
 			true,
 			false,
@@ -70,23 +64,35 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 	}
 
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
+	c.queue = queue.Name
+
 	for _, bindingKey := range c.config.BindingKeys {
-		err = ch.QueueBind(
+		err = c.channel.QueueBind(
 			c.config.QueueName,
 			bindingKey,
 			c.config.Exchange,
 			false, // no wait
 			nil)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 
-	deliveries, err := ch.Consume(
-		queue.Name,
+	return c, nil
+}
+
+type processFn func(payload []byte) error
+
+func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	var msgCount int64
+
+	deliveries, err := c.channel.Consume(
+		c.queue,
 		"",    // consumer tag
 		false, // auto ack
 		false, // exclusive
