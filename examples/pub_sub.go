@@ -10,11 +10,12 @@ import (
 
 func config() *rabbitmq.Config {
 	return &rabbitmq.Config{
-		URLs:         []string{"amqp://guest:guest@localhost:5672/"},
-		Exchange:     "sample-ex",
-		ExchangeType: "topic",
-		QueueName:    "sample-queue",
-		BindingKeys:  []string{"sample"},
+		URLs:          []string{"amqp://guest:guest@localhost:5672/"},
+		Exchange:      "sample-ex",
+		ExchangeType:  "topic",
+		QueueName:     "sample-queue",
+		PrefetchCount: 50,
+		BindingKeys:   []string{"sample"},
 	}
 }
 

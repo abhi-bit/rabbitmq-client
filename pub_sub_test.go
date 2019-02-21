@@ -39,6 +39,7 @@ func config() *Config {
 		ExchangeType:       "topic",
 		QueueName:          queueName,
 		BindingKeys:        []string{bindingKey},
+		PrefetchCount:      50,
 		DeadLetterExchange: deadLetterExchange,
 		DeadLetterQueue:    deadLetterQueue,
 	}

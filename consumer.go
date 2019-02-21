@@ -37,6 +37,13 @@ func NewConsumer(conf *Config) (*Consumer, error) {
 		return nil, err
 	}
 
+	if err := c.channel.Qos(
+		conf.PrefetchCount,
+		0,
+		false); err != nil {
+		return nil, err
+	}
+
 	var queue amqp.Queue
 
 	if c.config.DeadLetterExchange != "" {

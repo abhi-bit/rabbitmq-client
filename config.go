@@ -7,8 +7,9 @@ type Config struct {
 
 	PublisherConfirm bool
 
-	QueueName   string
-	BindingKeys []string
+	QueueName     string
+	BindingKeys   []string
+	PrefetchCount int
 
 	DeadLetterExchange   string
 	DeadLetterQueue      string
