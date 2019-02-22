@@ -5,15 +5,20 @@ import (
 	"github.com/streadway/amqp"
 )
 
-type Consumer struct {
+type RMQConsumer struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
 	config  *Config
 	queue   string
 }
 
-func NewConsumer(conf *Config) (*Consumer, error) {
-	c := &Consumer{config: conf}
+type Consumer interface {
+	Consume(ctx context.Context, fn processFn) (int64, error)
+	Close() error
+}
+
+func NewConsumer(conf *Config) (*RMQConsumer, error) {
+	c := &RMQConsumer{config: conf}
 
 	var err error
 	c.conn, err = NewConnection(conf.URLs)
@@ -91,7 +96,7 @@ func NewConsumer(conf *Config) (*Consumer, error) {
 
 type processFn func(payload []byte) error
 
-func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
+func (c *RMQConsumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 	var msgCount int64
 	deliveries, err := c.channel.Consume(
 		c.queue,
@@ -130,7 +135,7 @@ func (c *Consumer) Consume(ctx context.Context, fn processFn) (int64, error) {
 	}
 }
 
-func (c *Consumer) Close() error {
+func (c *RMQConsumer) Close() error {
 	if c.conn == nil {
 		return nil
 	}

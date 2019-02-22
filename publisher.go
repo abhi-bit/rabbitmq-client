@@ -12,14 +12,20 @@ var (
 	ErrorInconsistentSize = errors.New("inconsistent messages or routing keys count")
 )
 
-type Publisher struct {
+type RMQPublisher struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
 	config  *Config
 }
 
-func NewPublishers(conf *Config, count int) ([]*Publisher, error) {
-	var publishers []*Publisher
+type Publisher interface {
+	Publish(msg []byte, routingKeys []string) error
+	MultiPublish(msgs [][]byte, routingKeysList [][]string) error
+	Close() error
+}
+
+func NewPublishers(conf *Config, count int) ([]*RMQPublisher, error) {
+	var publishers []*RMQPublisher
 
 	for i := 0; i < count; i++ {
 		p, err := NewPublisher(conf)
@@ -37,8 +43,8 @@ func NewPublishers(conf *Config, count int) ([]*Publisher, error) {
 	return publishers, nil
 }
 
-func NewPublisher(conf *Config) (*Publisher, error) {
-	p := &Publisher{config: conf}
+func NewPublisher(conf *Config) (*RMQPublisher, error) {
+	p := &RMQPublisher{config: conf}
 
 	var err error
 	p.conn, err = NewConnection(conf.URLs)
@@ -71,7 +77,7 @@ func NewPublisher(conf *Config) (*Publisher, error) {
 	return p, nil
 }
 
-func (p *Publisher) Publish(msg []byte, routingKeys []string) error {
+func (p *RMQPublisher) Publish(msg []byte, routingKeys []string) error {
 	confirm := make(chan amqp.Confirmation, 1)
 	if p.config.PublisherConfirm {
 		p.channel.NotifyPublish(confirm)
@@ -100,7 +106,7 @@ func (p *Publisher) Publish(msg []byte, routingKeys []string) error {
 	return nil
 }
 
-func (p *Publisher) MultiPublish(msgs [][]byte, routingKeysList [][]string) error {
+func (p *RMQPublisher) MultiPublish(msgs [][]byte, routingKeysList [][]string) error {
 	if len(msgs) != len(routingKeysList) {
 		return ErrorInconsistentSize
 	}
@@ -115,7 +121,7 @@ func (p *Publisher) MultiPublish(msgs [][]byte, routingKeysList [][]string) erro
 	return nil
 }
 
-func (p *Publisher) Close() error {
+func (p *RMQPublisher) Close() error {
 	if p.conn == nil {
 		return nil
 	}

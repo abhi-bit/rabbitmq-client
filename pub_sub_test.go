@@ -39,7 +39,7 @@ func config() *Config {
 		ExchangeType:       "topic",
 		QueueName:          queueName,
 		BindingKeys:        []string{bindingKey},
-		PrefetchCount:      50,
+		PrefetchCount:      20,
 		DeadLetterExchange: deadLetterExchange,
 		DeadLetterQueue:    deadLetterQueue,
 	}
@@ -82,7 +82,7 @@ func deleteQueue(queue string) error {
 	return cmd.Wait()
 }
 
-func PublisherAndConsumer() (*Publisher, *Consumer, error) {
+func PublisherAndConsumer() (*RMQPublisher, *RMQConsumer, error) {
 	conf := config()
 	c, err := NewConsumer(conf)
 	if err != nil {
@@ -99,7 +99,7 @@ func PublisherAndConsumer() (*Publisher, *Consumer, error) {
 	return p, c, nil
 }
 
-func consume(fn processFn, c *Consumer, wg *sync.WaitGroup, expected int64) {
+func consume(fn processFn, c *RMQConsumer, wg *sync.WaitGroup, expected int64) {
 	defer wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
 
