@@ -17,7 +17,7 @@ type Consumer interface {
 	Close() error
 }
 
-func NewConsumer(conf *Config) (*RMQConsumer, error) {
+func NewConsumer(conf *Config) (Consumer, error) {
 	c := &RMQConsumer{config: conf}
 
 	var err error

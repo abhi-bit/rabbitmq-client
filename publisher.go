@@ -24,8 +24,8 @@ type Publisher interface {
 	Close() error
 }
 
-func NewPublishers(conf *Config, count int) ([]*RMQPublisher, error) {
-	var publishers []*RMQPublisher
+func NewPublishers(conf *Config, count int) ([]Publisher, error) {
+	var publishers []Publisher
 
 	for i := 0; i < count; i++ {
 		p, err := NewPublisher(conf)
@@ -43,7 +43,7 @@ func NewPublishers(conf *Config, count int) ([]*RMQPublisher, error) {
 	return publishers, nil
 }
 
-func NewPublisher(conf *Config) (*RMQPublisher, error) {
+func NewPublisher(conf *Config) (Publisher, error) {
 	p := &RMQPublisher{config: conf}
 
 	var err error
