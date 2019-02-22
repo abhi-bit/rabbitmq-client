@@ -156,6 +156,46 @@ func TestPubSub(t *testing.T) {
 	}
 }
 
+func TestMultiPubSub(t *testing.T) {
+	conf := config()
+	ps, err := NewPublishers(conf, 10)
+	if err != nil {
+		t.Fatalf("Multi publisher err: %v", err)
+	}
+
+	c, err := NewConsumer(conf)
+	if err != nil {
+		t.Fatalf("Consumer conn err: %v", err)
+	}
+
+	defer func() {
+		actualRunCount = 0
+		c.Close()
+		for _, p := range ps {
+			p.Close()
+		}
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go consume(process, c, &wg, expectedRunCount)
+
+	for i := int64(0); i < expectedRunCount/2; i++ {
+		err0 := ps[0].Publish([]byte("sample message"), []string{bindingKey})
+		err1 := ps[1].Publish([]byte("sample message"), []string{bindingKey})
+		if err0 != nil || err1 != nil {
+			t.Errorf("Failure to publish")
+			return
+		}
+	}
+	wg.Wait()
+
+	if actualRunCount != expectedRunCount {
+		t.Errorf("Expected count: %d actual count: %d", expectedRunCount, actualRunCount)
+	}
+}
+
 func TestDeadLetter(t *testing.T) {
 	p, c, err := PublisherAndConsumer()
 	if err != nil {

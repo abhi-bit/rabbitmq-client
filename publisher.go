@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"errors"
+	"log"
 
 	"github.com/streadway/amqp"
 )
@@ -15,6 +16,25 @@ type Publisher struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
 	config  *Config
+}
+
+func NewPublishers(conf *Config, count int) ([]*Publisher, error) {
+	var publishers []*Publisher
+
+	for i := 0; i < count; i++ {
+		p, err := NewPublisher(conf)
+		if err != nil {
+			for _, p := range publishers {
+				cErr := p.Close()
+				if cErr != nil {
+					log.Fatalf("Failed to close publisher connection, err: %v", err)
+				}
+			}
+			return nil, err
+		}
+		publishers = append(publishers, p)
+	}
+	return publishers, nil
 }
 
 func NewPublisher(conf *Config) (*Publisher, error) {
